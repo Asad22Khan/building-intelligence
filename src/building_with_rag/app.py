@@ -148,7 +148,8 @@ def _stream(completion_id: str, created: int, model: str, text: str) -> Iterator
 
 @app.post("/v1/chat/completions")
 def chat_completions(body: ChatCompletionRequest):
-    result = run_pattern(_to_query_request(body))
+    # Chat stays a placeholder until answer generation: no retrieval here (Story 2.3).
+    result = run_pattern(_to_query_request(body), retrieve=False)
     text = result.message
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())

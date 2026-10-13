@@ -17,7 +17,8 @@ def test_healthz():
 
 
 def test_query_placeholder():
-    r = client.post("/v1/query", json={"question": "What is theft?", "pattern": "semantic"})
+    # semantic is real since Story 2.3; hybrid is still a placeholder
+    r = client.post("/v1/query", json={"question": "What is theft?", "pattern": "hybrid"})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "not_implemented"

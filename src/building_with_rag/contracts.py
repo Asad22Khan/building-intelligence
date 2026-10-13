@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .registry import Mode
 
@@ -10,6 +10,9 @@ from .registry import Mode
 
 
 class SemanticFilters(BaseModel):
+    # Unknown fields, operators and caller-shaped MongoDB fragments are rejected.
+    model_config = ConfigDict(extra="forbid")
+
     act: list[str] = Field(default_factory=list)
     status: list[str] = Field(default_factory=list)
     access_level: list[str] = Field(default_factory=list)
@@ -24,6 +27,13 @@ class QueryRequest(BaseModel):
     generate_answer: bool = False
     required_acts: list[str] = Field(default_factory=list)
     chapter: str | None = None
+
+    @field_validator("question")
+    @classmethod
+    def _question_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("question must not be blank")
+        return value
 
 
 class RetrievedChunk(BaseModel):
@@ -201,6 +211,15 @@ class SectionDocument(BaseModel):
     source: str | None = None
     status: str | None = None
     access_level: str | None = None
+    # Story 2.2 additions (see mongodb_schema.py)
+    source_id: str | None = None
+    act_label: str | None = None
+    chapter_title: str | None = None
+    source_pdf: str | None = None
+    source_sha256: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    needs_review: bool | None = None
 
 
 class ChunkDocument(BaseModel):
@@ -212,6 +231,27 @@ class ChunkDocument(BaseModel):
     source: str | None = None
     status: str | None = None
     access_level: str | None = None
-    embedding: list[float] | None = None  # voyage-3.5, 1,024 dimensions
+    embedding: list[float] | None = None  # unused: vectors live in `embeddings` (Story 2.2)
     embedding_model: str = "voyage-3.5"
     embedding_version: str = "voyage-3.5"
+    # Story 2.2 additions (see mongodb_schema.py)
+    chunk_index: int | None = None
+    chunking_version: str | None = None
+    splitter: str | None = None
+    embedding_input_text: str | None = None
+    chapter: str | None = None
+    text_sha256: str | None = None
+
+
+class EmbeddingDocument(BaseModel):
+    embedding_id: str
+    chunk_id: str
+    embedding_model: str
+    embedding_version: str
+    dimensions: int
+    vector: list[float]
+    act: str
+    chapter: str
+    status: str
+    access_level: str
+    input_sha256: str

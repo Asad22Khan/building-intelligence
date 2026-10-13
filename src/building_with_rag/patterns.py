@@ -1,10 +1,10 @@
-"""Pattern dispatch. Every mode is an honest placeholder until its story lands."""
+"""Pattern dispatch. Modes without their own story stay honest placeholders."""
 
 from .contracts import QueryRequest, QueryResult
 from .registry import MODE_MODEL_IDS
 
 
-def run_pattern(request: QueryRequest) -> QueryResult:
+def placeholder(request: QueryRequest) -> QueryResult:
     return QueryResult(
         pattern=request.pattern,
         status="not_implemented",
@@ -14,3 +14,17 @@ def run_pattern(request: QueryRequest) -> QueryResult:
         ),
         trace=[f"pattern={request.pattern}", "placeholder"],
     )
+
+
+def run_pattern(request: QueryRequest, *, retrieve: bool = True) -> QueryResult:
+    """`retrieve=False` keeps chat a placeholder until answer generation exists."""
+    if request.pattern == "semantic" and retrieve:
+        from .semantic import run_semantic
+
+        result = run_semantic(request)
+        if request.generate_answer:
+            from .generation import add_generation
+
+            return add_generation(request, result)  # same evidence, no second retrieval
+        return result
+    return placeholder(request)
