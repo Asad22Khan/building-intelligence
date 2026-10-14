@@ -103,9 +103,10 @@ class QueryResult(BaseModel):
 
 
 class RagOptions(BaseModel):
-    """Strict options sent by the Open WebUI Pipe."""
+    """Options sent by the Open WebUI Pipe."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Unknown keys from the Pipe are ignored (never used); the Pipe may add fields.
+    model_config = ConfigDict(extra="ignore")
 
     pattern: Mode | None = None
     act: list[str] = Field(default_factory=list)
@@ -114,6 +115,12 @@ class RagOptions(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=20)
     required_acts: list[str] = Field(default_factory=list)
     chapter: str | None = None
+
+    @field_validator("act", "status", "access_level", "required_acts", mode="before")
+    @classmethod
+    def _none_means_empty(cls, value):
+        # The Pipe may send null for "all" (no filter); treat it as an empty list.
+        return [] if value is None else value
 
 
 class ChatMessage(BaseModel):

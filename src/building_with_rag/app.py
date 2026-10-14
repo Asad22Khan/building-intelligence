@@ -24,7 +24,8 @@ from .contracts import (
     QueryResult,
     SemanticFilters,
 )
-from .patterns import run_pattern
+from .generation import Event
+from .patterns import run_pattern, run_pattern_events
 from .registry import MODE_MODEL_IDS, MODEL_ID_MODES
 from .settings import get_settings
 
@@ -121,7 +122,7 @@ def _to_query_request(body: ChatCompletionRequest) -> QueryRequest:
             )
     # Identity and generation settings are server-side only; never taken from the browser.
     fields["caller_id"] = get_settings().webui_demo_caller_id
-    fields["generate_answer"] = False
+    fields["generate_answer"] = True
     try:
         return QueryRequest(**fields)
     except ValidationError as exc:
@@ -130,7 +131,7 @@ def _to_query_request(body: ChatCompletionRequest) -> QueryRequest:
         ) from exc
 
 
-def _stream(completion_id: str, created: int, model: str, text: str) -> Iterator[str]:
+def _stream(completion_id: str, created: int, model: str, events: Iterator[Event]) -> Iterator[str]:
     def frame(delta: ChatCompletionDelta, finish: str | None = None) -> str:
         chunk = ChatCompletionChunk(
             id=completion_id,
@@ -141,23 +142,28 @@ def _stream(completion_id: str, created: int, model: str, text: str) -> Iterator
         return f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
 
     yield frame(ChatCompletionDelta(role="assistant"))
-    yield frame(ChatCompletionDelta(content=text))
+    try:
+        for kind, payload in events:
+            if kind == "text" and payload:
+                yield frame(ChatCompletionDelta(content=payload))
+    except Exception:  # never leave the stream open or leak details
+        yield frame(ChatCompletionDelta(content="\n\nUNAVAILABLE — the answer was interrupted."))
     yield frame(ChatCompletionDelta(), finish="stop")
     yield "data: [DONE]\n\n"
 
 
 @app.post("/v1/chat/completions")
 def chat_completions(body: ChatCompletionRequest):
-    # Chat stays a placeholder until answer generation: no retrieval here (Story 2.3).
-    result = run_pattern(_to_query_request(body), retrieve=False)
-    text = result.message
+    # Same dispatch path as /v1/query. Retrieval runs here, before any text is streamed.
+    events = run_pattern_events(_to_query_request(body))
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
     if body.stream:
         return StreamingResponse(
-            _stream(completion_id, created, body.model, text),
+            _stream(completion_id, created, body.model, events),
             media_type="text/event-stream",
         )
+    text = "".join(payload for kind, payload in events if kind == "text")
     return ChatCompletionResponse(
         id=completion_id,
         created=created,

@@ -36,7 +36,7 @@ Until a mode's own story adds behavior, it returns an honest `not_implemented` r
 - `GET /healthz`: minimal status only.
 - `POST /v1/query`: takes a `QueryRequest`, calls `run_pattern`, returns a `QueryResult`. It owns the diagnostics.
 - `GET /v1/models`: the six model IDs in OpenAI model-list format.
-- `POST /v1/chat/completions`: maps the model and `rag_options` to the same `QueryRequest` and the same `run_pattern` path. The server sets the demo caller ID and `generate_answer`. Open WebUI receives only plain answer text derived from the same `QueryResult`. Supports JSON and SSE streaming.
+- `POST /v1/chat/completions`: maps the model and `rag_options` to the same `QueryRequest` and the same `run_pattern` path. The server sets the demo caller ID and `generate_answer`. Open WebUI receives plain text (draft, confidence and sources) from the same operation that produces the `QueryResult`. Supports JSON and SSE streaming.
 
 ## Layout
 
@@ -84,7 +84,7 @@ data/processed/          derived corpus files
 - **Field mapping:** `heading` is the section title, `source` is `source_pdf`, `page` is `page_start`, `score` is the vector-search score, `text` is the plain chunk text. `source_url` stays empty because the corpus has none.
 - **Filters:** `SemanticFilters` (`act`, `status`, `access_level`) are lists that only narrow the scope. Effective `access_level` always starts as `public` (one fixed demo caller). Unknown fields, operators and MongoDB fragments are rejected with a validation error.
 - **A score is not proof.** It ranks passages against each other; it does not show a passage is correct or sufficient.
-- **Chat:** `rag-semantic` is still listed in `/v1/models` and Open WebUI, but chat stays the existing placeholder until answer generation.
+- **Chat:** `rag-semantic` is listed in `/v1/models` and Open WebUI. Chat was a placeholder until Story 3.2 connected it to generation.
 - **Verify data:** `uv run python -m building_with_rag.verify_semantic` (counts, status and vector length only).
 - **Example diagnostic (PowerShell, prints no passage text):**
 
@@ -105,7 +105,7 @@ data/processed/          derived corpus files
 - **Outcomes** (`QueryResult.generation.outcome`): `answered` (the only case where `answer` is set; every claim cites a supplied label), `insufficient_evidence` (the evidence does not support an answer, is missing or conflicts; also when retrieval returned `no_results`, with no model call), `unavailable` (generation settings blank, proxy unreachable, timeout or error status, or retrieval unavailable) and `malformed` (unparseable output, unknown outcome or an unknown label). No answer is ever fabricated.
 - **Citations.** Each cited label resolves to `label`, `chunk_id`, `section_id`, `act`, `heading`, `source` and `page`; `supporting_passages` holds the cited passages. Retrieved `results` stay in the same response.
 - **Legal scope.** Answers rest only on the supplied BNS and IPC documents and their `status`; no claim about current legal applicability beyond them.
-- **Chat.** `/v1/chat/completions` is still the placeholder; it is connected to generation and streaming in Story 3.2.
+- **Chat.** Connected to this same generation step and streaming in Story 3.2 (below).
 - **Example diagnostic (PowerShell, prints no passage text):**
 
   ```powershell
@@ -114,3 +114,13 @@ data/processed/          derived corpus files
   $r.generation | Select-Object outcome, context_outcome, answer
   $r.generation.citations | Select-Object label, chunk_id, section_id, act, source, page
   ```
+
+## Streamed answers, confidence and Open WebUI (Story 3.2)
+
+- **One operation, two surfaces.** `run_pattern_events` is the single dispatch path: retrieval runs once (not streamed), then `generation.generate_events` yields the chat text and, last, the final `QueryResult`. `/v1/query` drains it and returns the result; `/v1/chat/completions` streams the same events (or joins them when `stream` is false). The stream and the result are one operation, never two LLM calls. The server sets `generate_answer` true for chat; the browser never does.
+- **Only answer writing streams.** The provider call uses `stream: true`. The model still returns the Story 3.1 JSON (`answer` first); only the decoded `answer` text is forwarded, never the JSON, `outcome` or `claims`. SSE frames: role chunk, content chunks, `finish_reason: "stop"`, `[DONE]`.
+- **Draft, then validate.** Open WebUI cannot retract streamed text, so every attempt streams under `DRAFT — checking evidence`. After each attempt the code validates it with no second LLM call: JSON shape, known labels, every claim cited, and a small term-overlap support check (`SUPPORT_MIN_OVERLAP`). Up to `MAX_ATTEMPTS` (2) attempts; a failed check streams a retry line and the next attempt sees the issues.
+- **Fields.** A validated answer: `outcome` `answered`, `confidence` `CONFIDENCE_HIGH` (0.9, shown as "high"), `answer` set. A failed final check: `outcome` `malformed`, `confidence` `CONFIDENCE_LOW` (0.3, "low"), `answer` `None`, `draft_answer` the text, `low_confidence_reason`. `issues` holds every failed check from every attempt; `attempts` the number used. If no text can be judged, `confidence` is absent and the real failure is reported. Invalid citations are never stripped or repaired.
+- **Chat close.** Validated: `✔ Evidence check passed. Confidence: high (attempt n of 2)` plus a `Sources:` list (act, act-qualified section ID, heading, page, label). Failed: `DRAFT — low confidence, not the final answer` plus a reason. `insufficient_evidence` and `unavailable` are stated plainly with no confidence line.
+- **Failure mid-stream.** If the provider fails after text began, one `UNAVAILABLE — the answer was interrupted: <reason>` line is streamed, then stop and `[DONE]`. No URL, key or stack trace appears.
+- **Chat is no longer a placeholder for `semantic`.** The other five modes still return `not_implemented` text through the same path. `/v1/query` stays the place to inspect `issues`, `attempts`, `trace` and citations.

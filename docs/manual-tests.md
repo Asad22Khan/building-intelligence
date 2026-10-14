@@ -105,13 +105,13 @@ curl -s -X POST http://127.0.0.1:8000/v1/query \
 Expected: the first returns `status` `no_results` with empty `results`. The second and third return HTTP 422 with a validation `detail`. With `MONGODB_URI` or `VOYAGE_API_KEY` blank, a valid semantic query returns `status` `unavailable` (not `no_results`) and a message naming the missing setting.
 
 ```bash
-# Chat for rag-semantic is still the placeholder (no retrieval)
+# Chat for rag-semantic (placeholder until Story 3.2, which connects it)
 curl -s -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "rag-semantic", "stream": false, "messages": [{"role": "user", "content": "What is the punishment for theft?"}]}'
 ```
 
-Expected: normal chat-completion JSON with `model` `rag-semantic` whose message says the `semantic` pattern is not implemented; no passages are shown.
+Expected at Story 2.3: placeholder text only; superseded by Story 3.2 (answer, confidence and sources).
 
 ## Story 3.1 — Grounded Answer Generation
 
@@ -145,10 +145,10 @@ Expected: the first returns `generation.outcome` `insufficient_evidence` with `a
 With `GENERATION_API_BASE_URL` or `GENERATION_API_KEY` blank, the first command returns retrieval `status` `ok`, `generation.outcome` `unavailable` and `answer` null. A reply the app cannot use gives `malformed` with `answer` null. No answer is ever invented.
 
 ```bash
-# Chat for rag-semantic is still the placeholder (Story 3.2 connects it)
+# Chat for rag-semantic (Story 3.2 connects it to generation; see Story 3.2 below)
 curl -s -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "rag-semantic", "stream": false, "messages": [{"role": "user", "content": "What is the punishment for theft?"}]}'
 ```
 
-Expected: normal chat-completion JSON with `model` `rag-semantic` whose message says the `semantic` pattern is not implemented.
+Expected (since Story 3.2): normal chat-completion JSON whose message is a `DRAFT — checking evidence` answer ending with a confidence and `Sources:` block (needs retrieval and generation settings; otherwise an `unavailable` message).

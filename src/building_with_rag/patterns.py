@@ -1,6 +1,9 @@
 """Pattern dispatch. Modes without their own story stay honest placeholders."""
 
+from collections.abc import Iterator
+
 from .contracts import QueryRequest, QueryResult
+from .generation import Event
 from .registry import MODE_MODEL_IDS
 
 
@@ -16,15 +19,26 @@ def placeholder(request: QueryRequest) -> QueryResult:
     )
 
 
-def run_pattern(request: QueryRequest, *, retrieve: bool = True) -> QueryResult:
-    """`retrieve=False` keeps chat a placeholder until answer generation exists."""
-    if request.pattern == "semantic" and retrieve:
+def run_pattern_events(request: QueryRequest) -> Iterator[Event]:
+    """The one dispatch path. Retrieval runs now (once, not streamed); the returned events
+    are the text to show and, last, the final QueryResult."""
+    if request.pattern == "semantic":
         from .semantic import run_semantic
 
         result = run_semantic(request)
         if request.generate_answer:
-            from .generation import add_generation
+            from .generation import generate_events
 
-            return add_generation(request, result)  # same evidence, no second retrieval
-        return result
-    return placeholder(request)
+            return generate_events(request, result)  # same evidence, no second retrieval
+        return iter([("text", result.message), ("result", result)])
+    result = placeholder(request)
+    return iter([("text", result.message), ("result", result)])
+
+
+def run_pattern(request: QueryRequest) -> QueryResult:
+    """Drain the events and return the final result (used by /v1/query)."""
+    final = None
+    for kind, payload in run_pattern_events(request):
+        if kind == "result":
+            final = payload
+    return final
